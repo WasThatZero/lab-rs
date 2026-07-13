@@ -1,0 +1,36 @@
+[package]
+name = "lab-rs"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.74"
+description = "Toolkit and library for reading, writing, and manipulating HTK .lab label files"
+license = "MIT"
+repository = "https://github.com/WasThatZero/lab-rs"
+readme = "README.md"
+keywords = ["htk", "lab", "label", "speech", "alignment"]
+categories = ["parser-implementations", "command-line-utilities", "multimedia::audio"]
+exclude = ["*.lab", ".github/"]
+
+[lib]
+name = "lab_rs"
+
+[[bin]]
+name = "lab"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = []
+serde = ["dep:serde"]
+cli = ["dep:clap", "dep:serde_json", "serde"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+serde_json = "1"
+
+[package.metadata.docs.rs]
+features = ["serde"]
