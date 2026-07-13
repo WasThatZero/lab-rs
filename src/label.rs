@@ -79,18 +79,27 @@ impl Label {
         matches!((self.start, self.end), (Some(s), Some(e)) if s <= time && time < e)
     }
 
-    // parses one non-empty line, line_no is 1-indexed for error messages
+    // parses one line, line_no is 1-indexed for error messages
     pub(crate) fn parse_line(line: &str, line_no: usize) -> Result<Self, ParseError> {
-        let tokens: Vec<&str> = line.split_whitespace().collect();
-        debug_assert!(!tokens.is_empty());
+        let tokens = tokenize(line, line_no)?;
+        if tokens.is_empty() {
+            return Err(invalid_label(line_no, "label line is empty"));
+        }
 
         let mut idx = 0;
         let mut start = None;
         let mut end = None;
+        if tokens.len() >= 3 && tokens[0].quoted && tokens[0].value.is_empty() && !tokens[1].quoted
+        {
+            if let Some(t) = parse_time(&tokens[1].value, line_no)? {
+                end = Some(t);
+                idx = 2;
+            }
+        }
         // leading integer tokens are times, but a line must keep at least
         // one token for the label text itself
-        while idx < tokens.len() - 1 && idx < 2 {
-            match parse_time(tokens[idx], line_no)? {
+        while idx < tokens.len() - 1 && idx < 2 && !tokens[idx].quoted {
+            match parse_time(&tokens[idx].value, line_no)? {
                 Some(t) if idx == 0 => start = Some(t),
                 Some(t) => end = Some(t),
                 None => break,
@@ -110,17 +119,24 @@ impl Label {
         let rest = &tokens[idx..];
         let (text_tokens, score) = match rest.split_last() {
             // a trailing numeric token after the label name is a score
-            Some((last, init)) if !init.is_empty() => match last.parse::<f64>() {
-                Ok(score) => (init, Some(score)),
-                Err(_) => (rest, None),
-            },
+            Some((last, init)) if !init.is_empty() && !last.quoted => {
+                match last.value.parse::<f64>() {
+                    Ok(score) if score.is_finite() => (init, Some(score)),
+                    Err(_) => (rest, None),
+                    _ => (rest, None),
+                }
+            }
             _ => (rest, None),
         };
 
         Ok(Label {
             start,
             end,
-            text: text_tokens.join(" "),
+            text: text_tokens
+                .iter()
+                .map(|token| token.value.as_str())
+                .collect::<Vec<_>>()
+                .join(" "),
             score,
         })
     }
@@ -130,11 +146,15 @@ impl fmt::Display for Label {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(s) = self.start {
             write!(f, "{s} ")?;
+        } else if let Some(e) = self.end {
+            write!(f, "\"\" {e} ")?;
         }
-        if let Some(e) = self.end {
-            write!(f, "{e} ")?;
+        if self.start.is_some() {
+            if let Some(e) = self.end {
+                write!(f, "{e} ")?;
+            }
         }
-        f.write_str(&self.text)?;
+        write_text(f, &self.text)?;
         if let Some(score) = self.score {
             write!(f, " {score}")?;
         }
@@ -146,7 +166,11 @@ impl FromStr for Label {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Label::parse_line(s, 1)
+        let line = s.trim_end_matches(['\r', '\n']);
+        if line.contains('\r') || line.contains('\n') {
+            return Err(invalid_label(1, "a label must contain exactly one line"));
+        }
+        Label::parse_line(line, 1)
     }
 }
 
@@ -171,6 +195,103 @@ fn parse_time(token: &str, line_no: usize) -> Result<Option<u64>, ParseError> {
         }),
         Err(_) => Ok(None),
     }
+}
+
+#[derive(Debug)]
+struct Token {
+    value: String,
+    quoted: bool,
+}
+
+fn tokenize(line: &str, line_no: usize) -> Result<Vec<Token>, ParseError> {
+    let mut tokens = Vec::new();
+    let mut chars = line.chars().peekable();
+
+    while chars.peek().is_some() {
+        while chars.peek().is_some_and(|c| c.is_whitespace()) {
+            chars.next();
+        }
+        if chars.peek().is_none() {
+            break;
+        }
+
+        let mut value = String::new();
+        let mut quoted = false;
+        while let Some(&c) = chars.peek() {
+            if c.is_whitespace() {
+                break;
+            }
+            chars.next();
+            if c != '"' {
+                value.push(c);
+                continue;
+            }
+
+            quoted = true;
+            let mut closed = false;
+            while let Some(c) = chars.next() {
+                match c {
+                    '"' => {
+                        closed = true;
+                        break;
+                    }
+                    '\\' => match chars.next() {
+                        Some('n') => value.push('\n'),
+                        Some('r') => value.push('\r'),
+                        Some('t') => value.push('\t'),
+                        Some('\\') => value.push('\\'),
+                        Some('"') => value.push('"'),
+                        Some(other) => {
+                            return Err(invalid_label(
+                                line_no,
+                                format!("unsupported escape sequence `\\{other}`"),
+                            ));
+                        }
+                        None => return Err(invalid_label(line_no, "unterminated escape sequence")),
+                    },
+                    other => value.push(other),
+                }
+            }
+            if !closed {
+                return Err(invalid_label(line_no, "unterminated quoted label text"));
+            }
+        }
+        tokens.push(Token { value, quoted });
+    }
+
+    Ok(tokens)
+}
+
+fn invalid_label(line: usize, message: impl Into<String>) -> ParseError {
+    ParseError {
+        line,
+        kind: ParseErrorKind::InvalidLabel(message.into()),
+    }
+}
+
+fn write_text(f: &mut fmt::Formatter<'_>, text: &str) -> fmt::Result {
+    let needs_quotes = text.is_empty()
+        || text
+            .chars()
+            .any(|c| c.is_whitespace() || c == '"' || c == '\\')
+        || text.parse::<u64>().is_ok()
+        || text.parse::<f64>().is_ok();
+    if !needs_quotes {
+        return f.write_str(text);
+    }
+
+    f.write_str("\"")?;
+    for c in text.chars() {
+        match c {
+            '\n' => f.write_str("\\n")?,
+            '\r' => f.write_str("\\r")?,
+            '\t' => f.write_str("\\t")?,
+            '\\' => f.write_str("\\\\")?,
+            '"' => f.write_str("\\\"")?,
+            other => write!(f, "{other}")?,
+        }
+    }
+    f.write_str("\"")
 }
 
 #[cfg(test)]
@@ -237,6 +358,38 @@ mod tests {
             let l: Label = line.parse().unwrap();
             assert_eq!(l.to_string(), line);
         }
+    }
+
+    #[test]
+    fn display_round_trips_ambiguous_text_and_end_only_labels() {
+        let labels = [
+            Label::new(0, 100, "word 123"),
+            Label {
+                start: None,
+                end: Some(100),
+                text: "word".into(),
+                score: None,
+            },
+            Label {
+                start: None,
+                end: None,
+                text: "a\nquoted \"label\"".into(),
+                score: None,
+            },
+        ];
+
+        for label in labels {
+            assert_eq!(label.to_string().parse::<Label>().unwrap(), label);
+        }
+    }
+
+    #[test]
+    fn rejects_empty_and_multiline_single_labels() {
+        let empty = "  ".parse::<Label>().unwrap_err();
+        assert!(matches!(empty.kind, ParseErrorKind::InvalidLabel(_)));
+
+        let multiline = "0 10 a\n10 20 b".parse::<Label>().unwrap_err();
+        assert!(matches!(multiline.kind, ParseErrorKind::InvalidLabel(_)));
     }
 
     #[test]

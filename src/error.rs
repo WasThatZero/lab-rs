@@ -15,6 +15,8 @@ pub struct ParseError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ParseErrorKind {
+    /// the line is empty or has invalid label syntax
+    InvalidLabel(String),
     /// a field that looked like a time could not be parsed as an integer
     InvalidTime(String),
     /// the start time is greater than the end time
@@ -30,6 +32,7 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "line {}: ", self.line)?;
         match &self.kind {
+            ParseErrorKind::InvalidLabel(s) => write!(f, "invalid label: {s}"),
             ParseErrorKind::InvalidTime(s) => write!(f, "invalid time value `{s}`"),
             ParseErrorKind::StartAfterEnd { start, end } => {
                 write!(f, "start time {start} is after end time {end}")
@@ -37,6 +40,27 @@ impl fmt::Display for ParseError {
         }
     }
 }
+
+/// an error produced while scaling label timestamps
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ScaleError {
+    /// the scaling factor is not a finite number
+    NonFiniteFactor,
+    /// the scaling factor is negative
+    NegativeFactor,
+}
+
+impl fmt::Display for ScaleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScaleError::NonFiniteFactor => f.write_str("scale factor must be finite"),
+            ScaleError::NegativeFactor => f.write_str("scale factor must not be negative"),
+        }
+    }
+}
+
+impl std::error::Error for ScaleError {}
 
 impl std::error::Error for ParseError {}
 

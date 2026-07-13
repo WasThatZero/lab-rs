@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::error::{ParseError, ReadError};
+use crate::error::{ParseError, ReadError, ScaleError};
 use crate::label::{secs_to_units, units_to_secs, Label};
 
 /// a parsed `.lab` file, derefs to `Vec<Label>`
@@ -108,13 +108,24 @@ impl LabFile {
         self.shift(offset);
     }
 
-    /// multiplies every time by `factor`, rounding to the nearest unit
-    pub fn scale(&mut self, factor: f64) {
+    /// multiplies every time by a non-negative finite `factor`, rounding to
+    /// the nearest unit
+    pub fn scale(&mut self, factor: f64) -> Result<(), ScaleError> {
+        if !factor.is_finite() {
+            return Err(ScaleError::NonFiniteFactor);
+        }
+        if factor < 0.0 {
+            return Err(ScaleError::NegativeFactor);
+        }
+        if factor == 1.0 {
+            return Ok(());
+        }
         let apply = |t: u64| secs_to_units(units_to_secs(t) * factor);
         for label in &mut self.labels {
             label.start = label.start.map(apply);
             label.end = label.end.map(apply);
         }
+        Ok(())
     }
 
     /// merges consecutive labels with identical text, merged labels lose
@@ -123,7 +134,11 @@ impl LabFile {
         let mut merged: Vec<Label> = Vec::with_capacity(self.labels.len());
         for label in self.labels.drain(..) {
             match merged.last_mut() {
-                Some(prev) if prev.text == label.text => {
+                Some(prev)
+                    if prev.text == label.text
+                        && (matches!((prev.end, label.start), (Some(end), Some(start)) if end == start)
+                            || matches!((prev.end, label.start), (None, _) | (_, None))) =>
+                {
                     prev.end = label.end.or(prev.end);
                     prev.score = None;
                 }
@@ -281,7 +296,7 @@ mod tests {
     #[test]
     fn scale_doubles_times() {
         let mut lab = sample();
-        lab.scale(2.0);
+        lab.scale(2.0).unwrap();
         assert_eq!(lab[2].end, Some(8000));
     }
 
@@ -291,6 +306,25 @@ mod tests {
         lab.merge_adjacent();
         assert_eq!(lab.len(), 2);
         assert_eq!(lab[1], Label::new(1000, 4000, "b"));
+    }
+
+    #[test]
+    fn merge_does_not_cross_gaps_or_overlaps() {
+        let mut gapped: LabFile = "0 10 a\n20 30 a\n".parse().unwrap();
+        gapped.merge_adjacent();
+        assert_eq!(gapped.len(), 2);
+
+        let mut nested: LabFile = "0 100 a\n10 20 a\n".parse().unwrap();
+        nested.merge_adjacent();
+        assert_eq!(nested.len(), 2);
+    }
+
+    #[test]
+    fn scale_rejects_invalid_factors() {
+        let mut lab = sample();
+        assert_eq!(lab.scale(f64::NAN), Err(ScaleError::NonFiniteFactor));
+        assert_eq!(lab.scale(-1.0), Err(ScaleError::NegativeFactor));
+        assert_eq!(lab, sample());
     }
 
     #[test]

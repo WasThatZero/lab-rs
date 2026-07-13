@@ -142,7 +142,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                     for l in &lab {
                         let start = l.start.map(units_to_secs).unwrap_or(0.0);
                         let end = l.end.map(units_to_secs).unwrap_or(start);
-                        writeln!(out, "{start:.6}\t{end:.6}\t{}", l.text)?;
+                        writeln!(out, "{start:.7}\t{end:.7}\t{}", l.text)?;
                     }
                 }
                 Format::Lab => lab.write_to(&mut out)?,
@@ -167,7 +167,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             in_place,
         } => {
             let mut lab = LabFile::from_path(&file)?;
-            lab.scale(factor);
+            lab.scale(factor)?;
             emit(&lab, &file, in_place)?;
         }
         Command::Merge { file, in_place } => {
@@ -183,11 +183,11 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 fn write_seconds<W: Write>(mut w: W, lab: &LabFile) -> std::io::Result<()> {
     for l in lab {
         match l.start.map(units_to_secs) {
-            Some(s) => write!(w, "{s:.6}\t")?,
+            Some(s) => write!(w, "{s:.7}\t")?,
             None => write!(w, "\t")?,
         }
         match l.end.map(units_to_secs) {
-            Some(e) => write!(w, "{e:.6}\t")?,
+            Some(e) => write!(w, "{e:.7}\t")?,
             None => write!(w, "\t")?,
         }
         w.write_all(l.text.as_bytes())?;
@@ -204,5 +204,21 @@ fn emit(lab: &LabFile, file: &std::path::Path, in_place: bool) -> std::io::Resul
         lab.save(file)
     } else {
         lab.write_to(std::io::stdout().lock())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seconds_output_preserves_100ns_ticks() {
+        let lab: LabFile = "0 1 x\n1 2 y\n".parse().unwrap();
+        let mut out = Vec::new();
+        write_seconds(&mut out, &lab).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "0.0000000\t0.0000001\tx\n0.0000001\t0.0000002\ty\n"
+        );
     }
 }

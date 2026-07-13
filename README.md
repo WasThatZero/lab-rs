@@ -17,7 +17,7 @@ Toolkit and library for reading, writing, and manipulating HTK .lab label files
 9200000 12000000 sil
 ```
 
-The parser handles the common subset of the HTK label format tolerantly: start and end times are optional, an optional numeric score may follow the label text, and blank lines and extra whitespace are ignored.
+The parser handles the common subset of the HTK label format tolerantly: start and end times are optional, an optional numeric score may follow the label text, and blank lines and extra whitespace are ignored. Quoted text with `\\` escapes is supported and is emitted when needed to preserve ambiguous label text, normalized end-only labels use an empty quoted start marker (`"" <end> <text>`).
 
 > I tried my best not to make *my* code look AI-generated since that's apparently something you need to worry about nowadays. Excuse the potential lack of comments and documentation outside this README and docs.rs. And yes, I am bitter about this.
 

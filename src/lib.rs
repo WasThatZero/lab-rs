@@ -21,6 +21,6 @@ mod error;
 mod file;
 mod label;
 
-pub use error::{ParseError, ParseErrorKind, ReadError};
+pub use error::{ParseError, ParseErrorKind, ReadError, ScaleError};
 pub use file::LabFile;
 pub use label::{secs_to_units, units_to_secs, Label, UNITS_PER_SECOND};
