@@ -71,7 +71,12 @@ fn label_secs_accessors() {
     assert_eq!(l.end_secs(), Some(20.0 / UNITS_PER_SECOND as f64));
     assert_eq!(l.duration_secs(), Some(10.0 / UNITS_PER_SECOND as f64));
 
-    let bare = Label { start: None, end: None, text: "test".to_string(), score: None };
+    let bare = Label {
+        start: None,
+        end: None,
+        text: "test".to_string(),
+        score: None,
+    };
     assert_eq!(bare.start_secs(), None);
     assert_eq!(bare.end_secs(), None);
     assert_eq!(bare.duration_secs(), None);
