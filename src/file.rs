@@ -78,6 +78,7 @@ impl LabFile {
     }
 
     /// returns the label whose span contains `time` (in 100ns units)
+    /// label matches when `start <= time < end`
     pub fn label_at(&self, time: u64) -> Option<&Label> {
         self.labels.iter().find(|l| l.contains(time))
     }
@@ -85,6 +86,34 @@ impl LabFile {
     /// returns the label whose span contains the time `secs` seconds
     pub fn label_at_secs(&self, secs: f64) -> Option<&Label> {
         self.label_at(secs_to_units(secs))
+    }
+
+    /// returns labels overlapping `time` (in 100ns units)
+    /// label matches when `start <= time < end`
+    pub fn labels_at(&self, time: u64) -> Vec<&Label> {
+        self.labels.iter().filter(|l| l.contains(time)).collect()
+    }
+
+    /// returns labels overlapping the time `secs` in seconds
+    /// label matches when `start <= time < end`
+    pub fn labels_at_secs(&self, secs: f64) -> Vec<&Label> {
+        self.labels_at(secs_to_units(secs))
+    }
+
+    /// finds pairs of consecutive labels that overlap or are out of order
+    /// adjacent labels sharing a boundary (`a.end == b.start`) are fine
+    /// returns (index of the second label, first label, second label) per problematic pair
+    pub fn overlapping_pairs(&self) -> Vec<(usize, &Label, &Label)> {
+        let mut overlaps = Vec::new();
+        for (i, pair) in self.labels.windows(2).enumerate() {
+            let (a, b) = (&pair[0], &pair[1]);
+            if let (Some(a_end), Some(b_start)) = (a.end, b.start) {
+                if b_start < a_end {
+                    overlaps.push((i + 1, a, b));
+                }
+            }
+        }
+        overlaps
     }
 
     /// shifts every time by `offset` in 100ns units, clamping at zero

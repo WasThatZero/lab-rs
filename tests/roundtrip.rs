@@ -1,4 +1,4 @@
-use lab_rs::{LabFile, Label, ParseErrorKind, ReadError};
+use lab_rs::{LabFile, Label, ParseErrorKind, ReadError, UNITS_PER_SECOND};
 
 const ALIGNMENT: &str = "\
 0 2500000 sil
@@ -62,4 +62,55 @@ fn serde_json_round_trip() {
     let json = serde_json::to_string(&lab).unwrap();
     let back: LabFile = serde_json::from_str(&json).unwrap();
     assert_eq!(back, lab);
+}
+
+#[test]
+fn label_secs_accessors() {
+    let l = Label::new(10, 20, "test");
+    assert_eq!(l.start_secs(), Some(10.0 / UNITS_PER_SECOND as f64));
+    assert_eq!(l.end_secs(), Some(20.0 / UNITS_PER_SECOND as f64));
+    assert_eq!(l.duration_secs(), Some(10.0 / UNITS_PER_SECOND as f64));
+
+    let bare = Label { start: None, end: None, text: "test".to_string(), score: None };
+    assert_eq!(bare.start_secs(), None);
+    assert_eq!(bare.end_secs(), None);
+    assert_eq!(bare.duration_secs(), None);
+}
+
+#[test]
+fn labfile_labels_at_methods() {
+    let lab: LabFile = "0 10 a\n10 20 b\n20 30 c\n".parse().unwrap();
+    assert_eq!(lab.label_at(5).unwrap().text, "a");
+    assert_eq!(lab.label_at(15).unwrap().text, "b");
+    // intervals are half-open, so a shared boundary belongs to the later label
+    assert_eq!(lab.label_at(20).unwrap().text, "c");
+    assert_eq!(lab.label_at(30), None);
+
+    assert_eq!(lab.labels_at(5).len(), 1);
+    assert_eq!(lab.labels_at(5)[0].text, "a");
+    assert_eq!(lab.labels_at(15).len(), 1);
+    assert_eq!(lab.labels_at(15)[0].text, "b");
+    assert_eq!(lab.labels_at(20).len(), 1);
+    assert_eq!(lab.labels_at(20)[0].text, "c");
+    assert_eq!(lab.labels_at(30).len(), 0);
+
+    let secs = |units: u64| units as f64 / UNITS_PER_SECOND as f64;
+    assert_eq!(lab.labels_at_secs(secs(5)).len(), 1);
+    assert_eq!(lab.labels_at_secs(secs(15)).len(), 1);
+    assert_eq!(lab.labels_at_secs(secs(20)).len(), 1);
+    assert_eq!(lab.labels_at_secs(secs(30)).len(), 0);
+}
+
+#[test]
+fn labfile_overlapping_pairs() {
+    let lab: LabFile = "0 10 a\n5 20 b\n20 30 c\n".parse().unwrap();
+    let overlaps = lab.overlapping_pairs();
+    assert_eq!(overlaps.len(), 1);
+    assert_eq!(overlaps[0].0, 1);
+    assert_eq!(overlaps[0].1.text, "a");
+    assert_eq!(overlaps[0].2.text, "b");
+
+    // adjacent labels sharing a boundary are not overlaps
+    let clean: LabFile = "0 10 a\n10 20 b\n".parse().unwrap();
+    assert!(clean.overlapping_pairs().is_empty());
 }
