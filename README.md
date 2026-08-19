@@ -63,6 +63,3 @@ lab scale hello.lab 2.0         # stretch all times by 2x
 lab merge hello.lab             # merge consecutive identical labels
 ```
 
-## License
-
-MIT, see [LICENSE](LICENSE).
